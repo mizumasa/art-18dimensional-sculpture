@@ -31,6 +31,7 @@ from args import get_args
 import iterator
 
 import cv2
+from PIL import ImageEnhance
 
 VEC_SIZE = 500
 SIZE = 150
@@ -129,6 +130,8 @@ def train(args):
     while 1:
         ret, frame = cap.read()
         if ret:
+            contrast_converter = ImageEnhance.Contrast(Image.fromarray(frame))
+            frame = np.asarray(contrast_converter.enhance(2.))
             output.d = makeOutputFromFrame(frame)
         count += 1
         if count % 30 == 0:
@@ -156,6 +159,6 @@ def train(args):
 if __name__ == '__main__':
     monitor_path = './'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
-                    max_iter=20000, learning_rate=0.0002, batch_size=64,
+                    max_iter=20000, learning_rate=0.002, batch_size=64,
                     weight_decay=0.0001)
     train(args)
