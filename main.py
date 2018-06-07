@@ -33,8 +33,9 @@ import iterator
 import cv2
 from PIL import ImageEnhance
 
-VEC_SIZE = 500
-SIZE = 150
+SIZE = 800
+
+VIEW_ON = False
 
 def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
@@ -93,7 +94,8 @@ def makeBGRVstack(ary):
     return output
 
 def train(args):
-    cv2.namedWindow('screen', cv2.WINDOW_NORMAL)
+    if VIEW_ON:
+        cv2.namedWindow('screen', cv2.WINDOW_NORMAL)
     #cv2.setWindowProperty('screen', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     
     from nnabla.contrib.context import extension_context
@@ -124,11 +126,15 @@ def train(args):
     with nn.parameter_scope("net"):
         solver.set_parameters(nn.get_parameters())
 
-    cap = cv2.VideoCapture(0)
+    if VIEW_ON:
+        cap = cv2.VideoCapture(0)
     # Training loop.
     count = 0
     while 1:
-        ret, frame = cap.read()
+        if VIEW_ON:
+            ret, frame = cap.read()
+        else:
+            ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
         if ret:
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(frame))
             frame = np.asarray(contrast_converter.enhance(2.))
@@ -141,11 +147,12 @@ def train(args):
         loss.forward(clear_no_need_grad=True)
 
         #cv2.imshow('screen', makeBGR(y.d))
-        cv2.imshow('screen', makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
+        if VIEW_ON:
+            cv2.imshow('screen', makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
 
-        k = cv2.waitKey(1)
-        if k == 27: #ESC
-            break
+            k = cv2.waitKey(1)
+            if k == 27: #ESC
+                break
         if 0 and count % 10 == 0:
             img = makePng(y.d)
             img.save(os.path.join(args.model_save_path, "output_%06d.png" % count))
