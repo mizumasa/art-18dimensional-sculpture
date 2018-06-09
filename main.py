@@ -40,7 +40,7 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 100
+SIZE = 200
 
 VIEW_ON = False
 VIEW_ON = True
@@ -128,8 +128,6 @@ def train(args):
 
     return
 
-
-
 class App:
     def __init__(self,args):
         self.args =args
@@ -146,6 +144,7 @@ class App:
         self.frameStart = time.time()
         self.frameSpentTime = []
         self.canvas = np.zeros((self.initWindowHeight,self.initWindowWidth,3),dtype = "uint8")
+        self.lenna = util.makeOutput("lenna.jpg",SIZE)
 
 
         from nnabla.contrib.context import extension_context
@@ -188,7 +187,8 @@ class App:
             img_ = img.copy()
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
             img = np.asarray(contrast_converter.enhance(2.))
-            self.output.d = util.makeOutputFromFrame(img,SIZE)
+            #self.output.d = util.makeOutputFromFrame(img,SIZE)
+            self.output.d = self.lenna
             self.count += 1
             if self.count % 30 == 0:
                 print self.count, "fps:", 1. * len(self.frameSpentTime) / sum(self.frameSpentTime) 
@@ -205,10 +205,11 @@ class App:
             self.startCanvas()
             
             if 1:
-                self.drawImage(util.makeBGR(self.y.d),100,200,100,100)
-                for i in range(16):
-                    for j in range(10):
-                        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
+                self.drawImage(util.makeBGR(self.y.d),200,0,200,200)
+                self.drawImage(util.makeBGR(self.output.d),0,0,200,200)
+                #for i in range(16):
+                #    for j in range(10):
+                #        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
                 self.drawCanvas()
 
             if 0:
@@ -222,9 +223,9 @@ class App:
             glFlush();
             glutSwapBuffers()
 
-            if 0 and count % 10 == 0:
-                self.img2 = self.util.makePng(y.d)
-                self.img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
+            if 1 and self.count % 1 == 0:
+                img2 = util.makePng(self.y.d)
+                img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
             self.loss.backward(clear_buffer=True)
             self.solver.weight_decay(self.args.weight_decay)
             self.solver.update()
@@ -309,7 +310,7 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './'
+    monitor_path = './tmp'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
                     max_iter=20000, learning_rate=0.002, batch_size=64,
                     weight_decay=0.0001)

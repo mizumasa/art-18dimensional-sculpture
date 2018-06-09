@@ -49,6 +49,12 @@ def makeOutputFromFrame(frame,size):
         ary[0][i] = imgary[:,:,i] / 255.
     return ary
 
+def makeOutputRaw(imgary,size):
+    ary = np.zeros((1,3,size,size))
+    for i in range(3):
+        ary[0][i] = imgary[:,:,i] / 255.
+    return ary
+
 def makeInput(size):
     ary = np.zeros((1,3,size,size))
     ary[0][2][:,:] = 1.0
