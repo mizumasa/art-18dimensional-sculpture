@@ -33,9 +33,10 @@ import iterator
 import cv2
 from PIL import ImageEnhance
 
-SIZE = 800
+SIZE = 200
 
 VIEW_ON = False
+VIEW_ON = True
 
 def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
@@ -96,7 +97,7 @@ def makeBGRVstack(ary):
 def train(args):
     if VIEW_ON:
         cv2.namedWindow('screen', cv2.WINDOW_NORMAL)
-    #cv2.setWindowProperty('screen', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        #cv2.setWindowProperty('screen', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     
     from nnabla.contrib.context import extension_context
     extension_module = args.context
@@ -150,9 +151,11 @@ def train(args):
         if VIEW_ON:
             cv2.imshow('screen', makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
 
-            k = cv2.waitKey(1)
+            k = cv2.waitKey(10)
             if k == 27: #ESC
                 break
+            else:
+                print k
         if 0 and count % 10 == 0:
             img = makePng(y.d)
             img.save(os.path.join(args.model_save_path, "output_%06d.png" % count))
