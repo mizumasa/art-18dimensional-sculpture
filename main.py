@@ -30,8 +30,15 @@ import nnabla.utils.save as save
 from args import get_args
 import iterator
 
+import time
 import cv2
 from PIL import ImageEnhance
+
+from OpenGL.GL import *
+from OpenGL.GLU import *
+from OpenGL.GLUT import *
+
+import util
 
 SIZE = 200
 
@@ -50,50 +57,6 @@ def network(x, maxh=16, depth=8):
             out = F.sigmoid(PF.convolution(out, 3, (1, 1), with_bias=False))
     return out
 
-def makeOutput(filename):
-    img = Image.open(filename)
-    if img.size != (SIZE,SIZE):
-        print "resize"
-        img = img.resize((SIZE,SIZE))
-    imgary = np.asarray(img)
-    ary = np.zeros((1,3,SIZE,SIZE))
-    for i in range(3):
-        ary[0][i] = imgary[:,:,i] / 255.
-    return ary
-
-def makeOutputFromFrame(frame):
-    imgary = cv2.resize(frame,(SIZE,SIZE))
-    ary = np.zeros((1,3,SIZE,SIZE))
-    for i in range(3):
-        ary[0][i] = imgary[:,:,i] / 255.
-    return ary
-
-def makeInput():
-    ary = np.zeros((1,3,SIZE,SIZE))
-    ary[0][2][:,:] = 1.0
-    for i in range(SIZE):
-        ary[0][0][i,:] = i * 1. / SIZE
-        ary[0][1][:,i] = i * 1. / SIZE
-    return ary
-
-def makePng(ary):
-    output = np.zeros((SIZE,SIZE,3),dtype="uint8")
-    for i in range(3):
-        output[:,:,i] = np.uint8(ary[0,i,:,:]*255)
-    return Image.fromarray(output)
-
-def makeBGR(ary):
-    output = np.zeros((SIZE,SIZE,3),dtype="uint8")
-    for i in range(3):
-        output[:,:,i] = np.uint8(ary[0,i,:,:]*255)
-    return output
-
-def makeBGRVstack(ary):
-    output = np.zeros((SIZE*2,SIZE,3),dtype="uint8")
-    for i in range(3):
-        output[:,:,i] = np.uint8(ary[0,i,:,:]*255)
-    return output
-
 def train(args):
     if VIEW_ON:
         cv2.namedWindow('screen', cv2.WINDOW_NORMAL)
@@ -111,10 +74,10 @@ def train(args):
     #y = network(x, maxh=8, depth=5)
     y = network(x)
     
-    dataIn = makeInput()
+    dataIn = util.makeInput()
     output = nn.Variable([1, 3, SIZE, SIZE])
     
-    dataOut = makeOutput("test.png")
+    dataOut = util.makeOutput("test.png")
     output.d = dataOut
 
     loss = F.mean(F.squared_error(y, output))
@@ -139,7 +102,7 @@ def train(args):
         if ret:
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(frame))
             frame = np.asarray(contrast_converter.enhance(2.))
-            output.d = makeOutputFromFrame(frame)
+            output.d = util.makeOutputFromFrame(frame)
         count += 1
         if count % 30 == 0:
             print count
@@ -147,9 +110,9 @@ def train(args):
         solver.zero_grad()
         loss.forward(clear_no_need_grad=True)
 
-        #cv2.imshow('screen', makeBGR(y.d))
+        #cv2.imshow('screen', util.makeBGR(y.d))
         if VIEW_ON:
-            cv2.imshow('screen', makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
+            cv2.imshow('screen', util.makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
 
             k = cv2.waitKey(10)
             if k == 27: #ESC
@@ -157,7 +120,7 @@ def train(args):
             else:
                 print k
         if 0 and count % 10 == 0:
-            img = makePng(y.d)
+            img = util.makePng(y.d)
             img.save(os.path.join(args.model_save_path, "output_%06d.png" % count))
         loss.backward(clear_buffer=True)
         solver.weight_decay(args.weight_decay)
@@ -166,9 +129,145 @@ def train(args):
     return
 
 
+
+class App:
+    def __init__(self,args):
+        self.args =args
+        self.start = time.time()
+        # USB camera setup
+        self.cap = cv2.VideoCapture(0)
+        if self.cap.isOpened() is False:
+            raise("IO Error")
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self.widowWidth = 400
+        self.windowHeight = 800
+
+
+
+        from nnabla.contrib.context import extension_context
+        extension_module = args.context
+        if args.context is None:
+            extension_module = 'cpu'
+        logger.info("Running in %s" % extension_module)
+        ctx = extension_context(extension_module, device_id=args.device_id)
+        nn.set_default_context(ctx)
+
+        self.x = nn.Variable([1, 3, SIZE, SIZE])
+        #y = network(x, maxh=8, depth=5)
+        self.y = network(self.x)
+        
+        self.dataIn = util.makeInput()
+        self.output = nn.Variable([1, 3, SIZE, SIZE])
+        
+        dataOut = util.makeOutput("test.png")
+        self.output.d = dataOut
+
+        self.loss = F.mean(F.squared_error(self.y, self.output))
+
+        param = nn.get_parameters()
+        for i,j in param.items():
+            param.get(i).d = np.random.randn(*(j.d.shape))
+
+        self.solver = S.Adam(args.learning_rate, beta1=0.5)
+        with nn.parameter_scope("net"):
+            self.solver.set_parameters(nn.get_parameters())
+        self.count = 0
+
+    def draw(self):
+        # Paste into texture to draw at high speed
+        ret, frame = self.cap.read() #read camera image
+        #ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
+        #img = cv2.imread('image.png') # if use the image file
+        if ret:
+            img= cv2.cvtColor(frame,cv2.COLOR_BGR2RGB) #BGR-->RGB
+            img_ = img.copy()
+            contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
+            img = np.asarray(contrast_converter.enhance(2.))
+            self.output.d = util.makeOutputFromFrame(img)
+            self.count += 1
+            if self.count % 30 == 0:
+                print self.count
+            self.x.d = self.dataIn.copy()
+            self.solver.zero_grad()
+            self.loss.forward(clear_no_need_grad=True)
+
+            #cv2.imshow('screen', util.makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
+
+            outframe = util.makeBGRVstack(np.concatenate([self.y.d, util.makeOutputFromFrame(img_)], axis=2))
+            h, w = outframe.shape[:2]
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, outframe)
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            glColor3f(1.0, 1.0, 1.0)
+
+            # Enable texture map
+            glEnable(GL_TEXTURE_2D)
+            # Set texture map method
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+
+            # draw square
+            glBegin(GL_QUADS) 
+            glTexCoord2d(0.0, 1.0)
+            glVertex3d(-1.0, -1.0,  0.0)
+            glTexCoord2d(1.0, 1.0)
+            glVertex3d( 1.0, -1.0,  0.0)
+            glTexCoord2d(1.0, 0.0)
+            glVertex3d( 1.0,  1.0,  0.0)
+            glTexCoord2d(0.0, 0.0)
+            glVertex3d(-1.0,  1.0,  0.0)
+            glEnd()
+
+            glFlush();
+            glutSwapBuffers()
+
+            if 0 and count % 10 == 0:
+                self.img2 = self.util.makePng(y.d)
+                self.img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
+            self.loss.backward(clear_buffer=True)
+            self.solver.weight_decay(self.args.weight_decay)
+            self.solver.update()
+
+        
+
+    def init(self):
+        glClearColor(0.7, 0.7, 0.7, 0.7)
+
+    def idle(self):
+        glutPostRedisplay()
+
+    def reshape(self,w, h):
+        glViewport(0, 0, w, h)
+        glLoadIdentity()
+        #Make the display area proportional to the size of the view
+        glOrtho(-w / self.widowWidth, w / self.widowWidth, -h / self.windowHeight, h / self.windowHeight, -1.0, 1.0)
+
+    def keyboard(self,key, x, y):
+        # convert byte to str
+        key = key.decode('utf-8')
+        # press q to exit
+        if key == 'q':
+            print('exit')
+            sys.exit()
+
+
 if __name__ == '__main__':
     monitor_path = './'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
                     max_iter=20000, learning_rate=0.002, batch_size=64,
                     weight_decay=0.0001)
-    train(args)
+    #train(args)
+    app = App(args)
+
+    glutInitWindowPosition(0, 0);
+    glutInitWindowSize(app.widowWidth, app.windowHeight);
+    glutInit(sys.argv)
+    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE )
+    glutCreateWindow("Display")
+    glutDisplayFunc(app.draw)
+    glutReshapeFunc(app.reshape)
+    glutKeyboardFunc(app.keyboard)
+    app.init()
+    glutIdleFunc(app.idle)
+    glutMainLoop()
