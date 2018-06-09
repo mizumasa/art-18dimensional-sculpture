@@ -40,12 +40,12 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 200
+SIZE = 100
 
 VIEW_ON = False
 VIEW_ON = True
 
-def network(x, maxh=16, depth=8):
+def network(x, maxh=16, depth=12):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
         with nn.parameter_scope("convIn"):
@@ -74,10 +74,10 @@ def train(args):
     #y = network(x, maxh=8, depth=5)
     y = network(x)
     
-    dataIn = util.makeInput()
+    dataIn = util.makeInput(SIZE)
     output = nn.Variable([1, 3, SIZE, SIZE])
     
-    dataOut = util.makeOutput("test.png")
+    dataOut = util.makeOutput("test.png",SIZE)
     output.d = dataOut
 
     loss = F.mean(F.squared_error(y, output))
@@ -102,7 +102,7 @@ def train(args):
         if ret:
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(frame))
             frame = np.asarray(contrast_converter.enhance(2.))
-            output.d = util.makeOutputFromFrame(frame)
+            output.d = util.makeOutputFromFrame(frame,SIZE)
         count += 1
         if count % 30 == 0:
             print count
@@ -141,9 +141,11 @@ class App:
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.widowWidth = 400
-        self.windowHeight = 800
-
+        self.initWindowWidth = 600
+        self.initWindowHeight = 400
+        self.frameStart = time.time()
+        self.frameSpentTime = []
+        self.canvas = np.zeros((self.initWindowHeight,self.initWindowWidth,3),dtype = "uint8")
 
 
         from nnabla.contrib.context import extension_context
@@ -158,10 +160,10 @@ class App:
         #y = network(x, maxh=8, depth=5)
         self.y = network(self.x)
         
-        self.dataIn = util.makeInput()
+        self.dataIn = util.makeInput(SIZE)
         self.output = nn.Variable([1, 3, SIZE, SIZE])
         
-        dataOut = util.makeOutput("test.png")
+        dataOut = util.makeOutput("test.png",SIZE)
         self.output.d = dataOut
 
         self.loss = F.mean(F.squared_error(self.y, self.output))
@@ -176,6 +178,7 @@ class App:
         self.count = 0
 
     def draw(self):
+        self.frameStart = time.time()
         # Paste into texture to draw at high speed
         ret, frame = self.cap.read() #read camera image
         #ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
@@ -185,39 +188,36 @@ class App:
             img_ = img.copy()
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
             img = np.asarray(contrast_converter.enhance(2.))
-            self.output.d = util.makeOutputFromFrame(img)
+            self.output.d = util.makeOutputFromFrame(img,SIZE)
             self.count += 1
             if self.count % 30 == 0:
-                print self.count
+                print self.count, "fps:", 1. * len(self.frameSpentTime) / sum(self.frameSpentTime) 
+                self.frameSpentTime = []
             self.x.d = self.dataIn.copy()
             self.solver.zero_grad()
             self.loss.forward(clear_no_need_grad=True)
 
             #cv2.imshow('screen', util.makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
-
-            outframe = util.makeBGRVstack(np.concatenate([self.y.d, util.makeOutputFromFrame(img_)], axis=2))
-            h, w = outframe.shape[:2]
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, outframe)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-            glColor3f(1.0, 1.0, 1.0)
 
-            # Enable texture map
-            glEnable(GL_TEXTURE_2D)
-            # Set texture map method
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            #outframe = util.makeBGR(np.concatenate([self.y.d, util.makeOutputFromFrame(img_,SIZE)], axis=2))
 
-            # draw square
-            glBegin(GL_QUADS) 
-            glTexCoord2d(0.0, 1.0)
-            glVertex3d(-1.0, -1.0,  0.0)
-            glTexCoord2d(1.0, 1.0)
-            glVertex3d( 1.0, -1.0,  0.0)
-            glTexCoord2d(1.0, 0.0)
-            glVertex3d( 1.0,  1.0,  0.0)
-            glTexCoord2d(0.0, 0.0)
-            glVertex3d(-1.0,  1.0,  0.0)
-            glEnd()
+            self.startCanvas()
+            
+            if 1:
+                self.drawImage(util.makeBGR(self.y.d),100,200,100,100)
+                for i in range(16):
+                    for j in range(10):
+                        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
+                self.drawCanvas()
+
+            if 0:
+                self.drawImage(img_,100,0,300,300,False)
+                self.drawImage(util.makeBGR(self.y.d),100,200,100,100,False)
+                for i in range(16):
+                    for j in range(10):
+                        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100,False)
+
 
             glFlush();
             glutSwapBuffers()
@@ -228,20 +228,71 @@ class App:
             self.loss.backward(clear_buffer=True)
             self.solver.weight_decay(self.args.weight_decay)
             self.solver.update()
+        self.frameSpentTime.append(time.time() - self.frameStart)
 
+    def drawImage(self,ary,x,y,w,h,useCanvas = True):
+        if useCanvas:
+            if (ary.shape == (h,w,3)):
+                try:
+                    self.canvas[y:y+h,x:x+w,:] = ary
+                except:
+                    print "WARN out of area",(x,y,w,h)
+            else:
+                try:
+                    self.canvas[y:y+h,x:x+w,:] = cv2.resize(ary,(w,h))
+                except:
+                    print "WARN out of area",(x,y,w,h)
+            return
+
+        h_, w_ = ary.shape[:2]
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w_, h_, 0, GL_RGB, GL_UNSIGNED_BYTE, ary)
+        #glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        glColor3f(1.0, 1.0, 1.0)
+        glEnable(GL_TEXTURE_2D)
         
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        left = 2. * x / self.windowSizeW - 1.
+        top = 2. * y / self.windowSizeH - 1.
+        right = 2. * (x+w) / self.windowSizeW - 1.
+        bottom = 2. * (y+h) / self.windowSizeH - 1.
+        # draw square
+        glBegin(GL_QUADS) 
+        glTexCoord2d(0.0, 1.0)
+        glVertex3d(left, - bottom,  0.0)
+        glTexCoord2d(1.0, 1.0)
+        glVertex3d(right, - bottom,  0.0)
+        glTexCoord2d(1.0, 0.0)
+        glVertex3d(right, - top,  0.0)
+        glTexCoord2d(0.0, 0.0)
+        glVertex3d(left, - top,  0.0)
+        glEnd()
+        return
+
+    def startCanvas(self):
+        if self.canvas.shape != (self.windowSizeH,self.windowSizeW,3):
+            print "change canvas size"
+            self.canvas = np.zeros((self.windowSizeH,self.windowSizeW,3),dtype = "uint8")
+        else:
+            self.canvas[:,:,:]=0
+
+    def drawCanvas(self):
+        self.drawImage(self.canvas,0,0,self.windowSizeW,self.windowSizeH,False)
 
     def init(self):
+        glutFullScreen()
         glClearColor(0.7, 0.7, 0.7, 0.7)
 
     def idle(self):
         glutPostRedisplay()
 
     def reshape(self,w, h):
+        self.windowSizeW = w
+        self.windowSizeH = h
         glViewport(0, 0, w, h)
         glLoadIdentity()
         #Make the display area proportional to the size of the view
-        glOrtho(-w / self.widowWidth, w / self.widowWidth, -h / self.windowHeight, h / self.windowHeight, -1.0, 1.0)
+        #glOrtho(-w / self.windowWidth, w / self.windowWidth, -h / self.windowHeight, h / self.windowHeight, -1.0, 1.0)
 
     def keyboard(self,key, x, y):
         # convert byte to str
@@ -250,6 +301,11 @@ class App:
         if key == 'q':
             print('exit')
             sys.exit()
+        if key == 'f':
+            if self.initWindowWidth == self.windowSizeW:
+                glutFullScreen()
+            else:
+                glutReshapeWindow(self.initWindowWidth,self.initWindowHeight)
 
 
 if __name__ == '__main__':
@@ -261,7 +317,7 @@ if __name__ == '__main__':
     app = App(args)
 
     glutInitWindowPosition(0, 0);
-    glutInitWindowSize(app.widowWidth, app.windowHeight);
+    glutInitWindowSize(app.initWindowWidth, app.initWindowHeight);
     glutInit(sys.argv)
     glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE )
     glutCreateWindow("Display")
