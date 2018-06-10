@@ -40,12 +40,15 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 200
+SIZE = 100
 
 VIEW_ON = False
 VIEW_ON = True
 
-def network(x, maxh=16, depth=12):
+LOOP_MODE = True
+TRAIN_ON = False
+
+def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
         with nn.parameter_scope("convIn"):
@@ -56,77 +59,6 @@ def network(x, maxh=16, depth=12):
         with nn.parameter_scope("convOut"):
             out = F.sigmoid(PF.convolution(out, 3, (1, 1), with_bias=False))
     return out
-
-def train(args):
-    if VIEW_ON:
-        cv2.namedWindow('screen', cv2.WINDOW_NORMAL)
-        #cv2.setWindowProperty('screen', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    
-    from nnabla.contrib.context import extension_context
-    extension_module = args.context
-    if args.context is None:
-        extension_module = 'cpu'
-    logger.info("Running in %s" % extension_module)
-    ctx = extension_context(extension_module, device_id=args.device_id)
-    nn.set_default_context(ctx)
-
-    x = nn.Variable([1, 3, SIZE, SIZE])
-    #y = network(x, maxh=8, depth=5)
-    y = network(x)
-    
-    dataIn = util.makeInput(SIZE)
-    output = nn.Variable([1, 3, SIZE, SIZE])
-    
-    dataOut = util.makeOutput("test.png",SIZE)
-    output.d = dataOut
-
-    loss = F.mean(F.squared_error(y, output))
-
-    param = nn.get_parameters()
-    for i,j in param.items():
-        param.get(i).d = np.random.randn(*(j.d.shape))
-
-    solver = S.Adam(args.learning_rate, beta1=0.5)
-    with nn.parameter_scope("net"):
-        solver.set_parameters(nn.get_parameters())
-
-    if VIEW_ON:
-        cap = cv2.VideoCapture(0)
-    # Training loop.
-    count = 0
-    while 1:
-        if VIEW_ON:
-            ret, frame = cap.read()
-        else:
-            ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
-        if ret:
-            contrast_converter = ImageEnhance.Contrast(Image.fromarray(frame))
-            frame = np.asarray(contrast_converter.enhance(2.))
-            output.d = util.makeOutputFromFrame(frame,SIZE)
-        count += 1
-        if count % 30 == 0:
-            print count
-        x.d = dataIn.copy()
-        solver.zero_grad()
-        loss.forward(clear_no_need_grad=True)
-
-        #cv2.imshow('screen', util.makeBGR(y.d))
-        if VIEW_ON:
-            cv2.imshow('screen', util.makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
-
-            k = cv2.waitKey(10)
-            if k == 27: #ESC
-                break
-            else:
-                print k
-        if 0 and count % 10 == 0:
-            img = util.makePng(y.d)
-            img.save(os.path.join(args.model_save_path, "output_%06d.png" % count))
-        loss.backward(clear_buffer=True)
-        solver.weight_decay(args.weight_decay)
-        solver.update()
-
-    return
 
 class App:
     def __init__(self,args):
@@ -139,7 +71,7 @@ class App:
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.initWindowWidth = 600
+        self.initWindowWidth = 800
         self.initWindowHeight = 400
         self.frameStart = time.time()
         self.frameSpentTime = []
@@ -205,8 +137,8 @@ class App:
             self.startCanvas()
             
             if 1:
-                self.drawImage(util.makeBGR(self.y.d),200,0,200,200)
-                self.drawImage(util.makeBGR(self.output.d),0,0,200,200)
+                self.drawImage(util.makeBGR(self.y.d),SIZE,0,SIZE,SIZE)
+                self.drawImage(util.makeBGR(self.output.d),0,0,SIZE,SIZE)
                 #for i in range(16):
                 #    for j in range(10):
                 #        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
@@ -223,7 +155,7 @@ class App:
             glFlush();
             glutSwapBuffers()
 
-            if 1 and self.count % 1 == 0:
+            if TRAIN_ON and self.count % 1 == 0:
                 img2 = util.makePng(self.y.d)
                 img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
             self.loss.backward(clear_buffer=True)
@@ -270,6 +202,12 @@ class App:
         glEnd()
         return
 
+    def setNextParam(self):
+        param = nn.get_parameters()
+        for i,j in param.items():
+            param.get(i).d = np.random.randn(*(j.d.shape))
+        return
+
     def startCanvas(self):
         if self.canvas.shape != (self.windowSizeH,self.windowSizeW,3):
             print "change canvas size"
@@ -302,6 +240,8 @@ class App:
         if key == 'q':
             print('exit')
             sys.exit()
+        if key == 'n':
+            self.setNextParam()
         if key == 'f':
             if self.initWindowWidth == self.windowSizeW:
                 glutFullScreen()
@@ -310,9 +250,9 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmp'
+    monitor_path = './tmpLoop'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
-                    max_iter=20000, learning_rate=0.002, batch_size=64,
+                    max_iter=20000, learning_rate=0.0002, batch_size=64,
                     weight_decay=0.0001)
     #train(args)
     app = App(args)
