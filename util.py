@@ -34,15 +34,17 @@ from PIL import ImageEnhance
 def makeOutput(filename,size):
     img = Image.open(filename)
     
-    contrast_converter = ImageEnhance.Contrast(img)
-    img = contrast_converter.enhance(2.)
+    if 0:
+        contrast_converter = ImageEnhance.Contrast(img)
+        img = contrast_converter.enhance(2.)
 
     if img.size != (size,size):
         print "resize"
         img = img.resize((size,size))
     imgary = np.asarray(img).copy()
 
-    imgary[:,:,0] = 0
+    if 0:
+        imgary[:,:,0] = 0
 
     ary = np.zeros((1,3,size,size))
     for i in range(3):

@@ -40,15 +40,19 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 100
+SIZE = 800
 
 VIEW_ON = False
 VIEW_ON = True
 
-LOOP_MODE = True
-TRAIN_ON = False
+LOOP_MODE = not True
+LOOP_LENGTH = 60
+LOOP_FADE = 30
 
-def network(x, maxh=16, depth=8):
+TRAIN_ON = True
+SAVE_ON = True
+
+def network(x, maxh=16, depth=12):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
         with nn.parameter_scope("convIn"):
@@ -78,6 +82,7 @@ class App:
         self.canvas = np.zeros((self.initWindowHeight,self.initWindowWidth,3),dtype = "uint8")
         self.lenna = util.makeOutput("lenna.jpg",SIZE)
 
+        self.param = {"pre":{},"next":{}}
 
         from nnabla.contrib.context import extension_context
         extension_module = args.context
@@ -107,6 +112,8 @@ class App:
         with nn.parameter_scope("net"):
             self.solver.set_parameters(nn.get_parameters())
         self.count = 0
+        self.countLoop = 0
+        self.initParam()
 
     def draw(self):
         self.frameStart = time.time()
@@ -121,6 +128,16 @@ class App:
             img = np.asarray(contrast_converter.enhance(2.))
             #self.output.d = util.makeOutputFromFrame(img,SIZE)
             self.output.d = self.lenna
+
+            if LOOP_MODE:
+                self.countLoop += 1
+                if self.countLoop == LOOP_LENGTH:
+                    self.countLoop = 0
+                if self.countLoop < LOOP_FADE:
+                    self.setNowParam(1. * self.countLoop / LOOP_FADE)
+                if self.countLoop == LOOP_FADE:
+                    self.nextParam()
+
             self.count += 1
             if self.count % 30 == 0:
                 print self.count, "fps:", 1. * len(self.frameSpentTime) / sum(self.frameSpentTime) 
@@ -155,12 +172,13 @@ class App:
             glFlush();
             glutSwapBuffers()
 
-            if TRAIN_ON and self.count % 1 == 0:
+            if SAVE_ON and self.count % 1 == 0:
                 img2 = util.makePng(self.y.d)
                 img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
-            self.loss.backward(clear_buffer=True)
-            self.solver.weight_decay(self.args.weight_decay)
-            self.solver.update()
+            if TRAIN_ON:
+                self.loss.backward(clear_buffer=True)
+                self.solver.weight_decay(self.args.weight_decay)
+                self.solver.update()
         self.frameSpentTime.append(time.time() - self.frameStart)
 
     def drawImage(self,ary,x,y,w,h,useCanvas = True):
@@ -208,6 +226,25 @@ class App:
             param.get(i).d = np.random.randn(*(j.d.shape))
         return
 
+    def initParam(self):
+        param = nn.get_parameters()
+        for i,j in param.items():
+            self.param["pre"][i] = np.random.randn(*(j.d.shape))
+            self.param["next"][i] = np.random.randn(*(j.d.shape))
+        return
+
+    def nextParam(self):
+        for i in self.param["next"].keys():
+            self.param["pre"][i] = self.param["next"][i].copy()
+            self.param["next"][i] = np.random.randn(*(self.param["next"][i].shape))
+        return
+
+    def setNowParam(self,level):#level = 0 -> 1
+        param = nn.get_parameters()
+        for i,j in param.items():
+            param.get(i).d = self.param["next"][i] * level + self.param["pre"][i] * (1. - level)
+        return
+
     def startCanvas(self):
         if self.canvas.shape != (self.windowSizeH,self.windowSizeW,3):
             print "change canvas size"
@@ -241,7 +278,15 @@ class App:
             print('exit')
             sys.exit()
         if key == 'n':
-            self.setNextParam()
+            #self.setNextParam()
+            self.nextParam()
+            self.setNowParam(0.5)
+        if key == 't':
+            global TRAIN_ON
+            TRAIN_ON = not TRAIN_ON
+        if key == 's':
+            global SAVE_ON
+            SAVE_ON = not SAVE_ON
         if key == 'f':
             if self.initWindowWidth == self.windowSizeW:
                 glutFullScreen()
@@ -250,9 +295,9 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmpLoop'
+    monitor_path = './tmp'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
-                    max_iter=20000, learning_rate=0.0002, batch_size=64,
+                    max_iter=20000, learning_rate=0.002, batch_size=64,
                     weight_decay=0.0001)
     #train(args)
     app = App(args)
