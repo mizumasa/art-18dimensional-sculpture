@@ -34,7 +34,7 @@ from PIL import ImageEnhance
 def makeOutput(filename,size):
     img = Image.open(filename)
     
-    if 0:
+    if 1:
         contrast_converter = ImageEnhance.Contrast(img)
         img = contrast_converter.enhance(2.)
 

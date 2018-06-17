@@ -45,14 +45,14 @@ SIZE = 800
 VIEW_ON = False
 VIEW_ON = True
 
-LOOP_MODE = not True
+LOOP_MODE = True
 LOOP_LENGTH = 60
-LOOP_FADE = 30
+LOOP_FADE = 8
 
 TRAIN_ON = True
 SAVE_ON = True
 
-def network(x, maxh=16, depth=12):
+def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
         with nn.parameter_scope("convIn"):
@@ -295,7 +295,7 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmp'
+    monitor_path = './tmpLoop6'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
                     max_iter=20000, learning_rate=0.002, batch_size=64,
                     weight_decay=0.0001)
