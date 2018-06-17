@@ -75,8 +75,8 @@ class App:
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.initWindowWidth = 800
-        self.initWindowHeight = 400
+        self.initWindowWidth = 800 * 2
+        self.initWindowHeight = 400 * 2
         self.frameStart = time.time()
         self.frameSpentTime = []
         self.canvas = np.zeros((self.initWindowHeight,self.initWindowWidth,3),dtype = "uint8")
@@ -256,7 +256,7 @@ class App:
         self.drawImage(self.canvas,0,0,self.windowSizeW,self.windowSizeH,False)
 
     def init(self):
-        glutFullScreen()
+        #glutFullScreen()
         glClearColor(0.7, 0.7, 0.7, 0.7)
 
     def idle(self):
@@ -295,9 +295,9 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmpLoop6'
+    monitor_path = './tmpLoop7'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
-                    max_iter=20000, learning_rate=0.002, batch_size=64,
+                    max_iter=20000, learning_rate=0.0002, batch_size=64,
                     weight_decay=0.0001)
     #train(args)
     app = App(args)
