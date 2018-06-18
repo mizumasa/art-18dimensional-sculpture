@@ -42,15 +42,28 @@ import util
 
 SIZE = 800
 
+CAM_ON = False
+
 VIEW_ON = False
 VIEW_ON = True
 
-LOOP_MODE = True
+LOOP_MODE = False
 LOOP_LENGTH = 60
 LOOP_FADE = 40
 
 TRAIN_ON = True
 SAVE_ON = True
+
+PARAM_NORM = True
+LEARN_RATE = 0.0002
+
+DEMO = False
+if DEMO: #realtimedemo
+    LEARN_RATE = 0.005
+    LOOP_MODE = True
+    LOOP_LENGTH = 560
+    LOOP_FADE = 20
+
 
 def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
@@ -126,8 +139,10 @@ class App:
             img_ = img.copy()
             contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
             img = np.asarray(contrast_converter.enhance(2.))
-            #self.output.d = util.makeOutputFromFrame(img,SIZE)
-            self.output.d = self.lenna
+            if CAM_ON:
+                self.output.d = util.makeOutputFromFrame(img,SIZE)
+            else:
+                self.output.d = self.lenna
 
             if LOOP_MODE:
                 self.countLoop += 1
@@ -139,7 +154,7 @@ class App:
                     self.nextParam()
 
             self.count += 1
-            if self.count % 30 == 0:
+            if self.count % 30 == 0 and len(self.frameSpentTime) > 0:
                 print self.count, "fps:", 1. * len(self.frameSpentTime) / sum(self.frameSpentTime) 
                 self.frameSpentTime = []
             self.x.d = self.dataIn.copy()
@@ -154,8 +169,9 @@ class App:
             self.startCanvas()
             
             if 1:
-                self.drawImage(util.makeBGR(self.y.d),SIZE,0,SIZE,SIZE)
-                self.drawImage(util.makeBGR(self.output.d),0,0,SIZE,SIZE)
+                dSIZE = min(600,SIZE)
+                self.drawImage(util.makeBGR(self.y.d),dSIZE,0,dSIZE,dSIZE)
+                self.drawImage(util.makeBGR(self.output.d),0,0,dSIZE,dSIZE)
                 #for i in range(16):
                 #    for j in range(10):
                 #        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
@@ -179,6 +195,11 @@ class App:
                 self.loss.backward(clear_buffer=True)
                 self.solver.weight_decay(self.args.weight_decay)
                 self.solver.update()
+                if PARAM_NORM:
+                    param = nn.get_parameters()
+                    for i,j in param.items():
+                        param.get(i).d /= param.get(i).d.std() 
+        return
         self.frameSpentTime.append(time.time() - self.frameStart)
 
     def drawImage(self,ary,x,y,w,h,useCanvas = True):
@@ -257,7 +278,7 @@ class App:
         self.drawImage(self.canvas,0,0,self.windowSizeW,self.windowSizeH,False)
 
     def init(self):
-        #glutFullScreen()
+        glutFullScreen()
         glClearColor(0.7, 0.7, 0.7, 0.7)
 
     def idle(self):
@@ -298,7 +319,7 @@ class App:
 if __name__ == '__main__':
     monitor_path = './tmpLoop8'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
-                    max_iter=20000, learning_rate=0.0002, batch_size=64,
+                    max_iter=20000, learning_rate=LEARN_RATE, batch_size=64,
                     weight_decay=0.0001)
     #train(args)
     app = App(args)
