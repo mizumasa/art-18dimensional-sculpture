@@ -47,7 +47,7 @@ VIEW_ON = True
 
 LOOP_MODE = True
 LOOP_LENGTH = 60
-LOOP_FADE = 8
+LOOP_FADE = 40
 
 TRAIN_ON = True
 SAVE_ON = True
@@ -242,7 +242,8 @@ class App:
     def setNowParam(self,level):#level = 0 -> 1
         param = nn.get_parameters()
         for i,j in param.items():
-            param.get(i).d = self.param["next"][i] * level + self.param["pre"][i] * (1. - level)
+            buf = self.param["next"][i] * level + self.param["pre"][i] * (1. - level)
+            param.get(i).d = (buf / buf.std()) 
         return
 
     def startCanvas(self):
@@ -295,7 +296,7 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmpLoop7'
+    monitor_path = './tmpLoop8'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
                     max_iter=20000, learning_rate=0.0002, batch_size=64,
                     weight_decay=0.0001)
