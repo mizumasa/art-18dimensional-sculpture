@@ -40,7 +40,7 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 800
+SIZE = 200
 
 CAM_ON = False
 
@@ -85,9 +85,10 @@ class App:
         self.cap = cv2.VideoCapture(0)
         if self.cap.isOpened() is False:
             raise("IO Error")
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        if CAM_ON:
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.initWindowWidth = 800 * 2
         self.initWindowHeight = 400 * 2
         self.frameStart = time.time()
@@ -131,8 +132,10 @@ class App:
     def draw(self):
         self.frameStart = time.time()
         # Paste into texture to draw at high speed
-        ret, frame = self.cap.read() #read camera image
-        #ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
+        if CAM_ON:
+            ret, frame = self.cap.read() #read camera image
+        else:
+            ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
         #img = cv2.imread('image.png') # if use the image file
         if ret:
             img= cv2.cvtColor(frame,cv2.COLOR_BGR2RGB) #BGR-->RGB
@@ -278,7 +281,7 @@ class App:
         self.drawImage(self.canvas,0,0,self.windowSizeW,self.windowSizeH,False)
 
     def init(self):
-        glutFullScreen()
+        #glutFullScreen()
         glClearColor(0.7, 0.7, 0.7, 0.7)
 
     def idle(self):
