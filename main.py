@@ -40,22 +40,27 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 100
+SIZE = 200
+DRAW_RESIZE = 1.3
 
-CAM_ON = False
+CAM_ON = True
+CAM_ON_ONLY = [7]
 
 VIEW_ON = False
 VIEW_ON = True
 
 LOOP_MODE = True
-LOOP_LENGTH = 30
-LOOP_FADE = 5
+LOOP_ON_IGNORE = [7]
+LOOP_LENGTH = 60
+LOOP_FADE = 10
 
 TRAIN_ON = True
+TRAIN_ON_ONLY = [7]
 SAVE_ON = False
 
 PARAM_NORM = True
 LEARN_RATE = 0.0002
+LEARN_RATE = 0.005
 
 DEMO = False
 if DEMO: #realtimedemo
@@ -66,8 +71,9 @@ if DEMO: #realtimedemo
 
 
 #MULTI mode
-MULTI_ON = False
-NET_NUM = 3
+MULTI_ON = True
+NET_NUM = 15
+MULTI_DRAW_H = 3
 
 def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
@@ -121,14 +127,16 @@ class App:
         nn.set_default_context(ctx)
 
         self.dataIn = util.makeInput(SIZE)
-        dataOut = util.makeOutput("test.png",SIZE)
+        self.dataOut = util.makeOutput("test.png",SIZE)
     
         if MULTI_ON:
             for idx in range(NET_NUM):
                 with nn.parameter_scope(net(idx)):
                     self.mX[net(idx)] = nn.Variable([1, 3, SIZE, SIZE])
+                    self.mX[net(idx)].d = self.dataIn.copy()
                     self.mY[net(idx)] = network(self.mX[net(idx)])
                     self.mOutput[net(idx)] = nn.Variable([1, 3, SIZE, SIZE])
+                    self.mOutput[net(idx)].d = self.dataOut
                     self.mLoss[net(idx)] = F.mean(F.squared_error(self.mY[net(idx)], self.mOutput[net(idx)]))
                     param = nn.get_parameters()
                     for i,j in param.items():
@@ -144,7 +152,7 @@ class App:
             self.y = network(self.x)
         
             self.output = nn.Variable([1, 3, SIZE, SIZE])
-            self.output.d = dataOut
+            self.output.d = self.dataOut
             self.loss = F.mean(F.squared_error(self.y, self.output))
 
             param = nn.get_parameters()
@@ -176,15 +184,19 @@ class App:
                 img = np.asarray(contrast_converter.enhance(2.))
                 if MULTI_ON:
                     for idx in range(NET_NUM):
-                        self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
+                        if idx in CAM_ON_ONLY:
+                            self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
                 else:
                     self.output.d = util.makeOutputFromFrame(img,SIZE)
-            else:
-                if MULTI_ON:
-                    for idx in range(NET_NUM):
-                        self.mOutput[net(idx)].d = self.lenna
-                else:
-                    self.output.d = self.lenna
+            #else:
+            #    if MULTI_ON:
+            #        for idx in range(NET_NUM):
+            #            pass
+            #            #self.mOutput[net(idx)].d = self.lenna
+            #            #self.mOutput[net(idx)].d = self.dataOut
+            #    else:
+            #        self.output.d = self.lenna
+            #        self.output.d = self.dataOut
 
             if LOOP_MODE:
                 self.countLoop += 1
@@ -192,10 +204,11 @@ class App:
                     self.countLoop = 0
                 if MULTI_ON:
                     for idx in range(NET_NUM):
-                        if self.countLoop < LOOP_FADE:
-                            self.mSetNowParam(idx,1. * self.countLoop / LOOP_FADE)
-                        if self.countLoop == LOOP_FADE:
-                            self.mNextParam(idx)
+                        if idx not in LOOP_ON_IGNORE:
+                            if self.countLoop < LOOP_FADE:
+                                self.mSetNowParam(idx,1. * self.countLoop / LOOP_FADE)
+                            if self.countLoop == LOOP_FADE:
+                                self.mNextParam(idx)
                 else:
                     if self.countLoop < LOOP_FADE:
                         self.setNowParam(1. * self.countLoop / LOOP_FADE)
@@ -209,7 +222,7 @@ class App:
 
             if MULTI_ON:
                 for idx in range(NET_NUM):
-                    self.mX[net(idx)].d = self.dataIn.copy()
+                    #self.mX[net(idx)].d = self.dataIn.copy()
                     self.mSolver[net(idx)].zero_grad()
                     self.mLoss[net(idx)].forward(clear_no_need_grad=True)
             else:
@@ -228,8 +241,8 @@ class App:
                 dSIZE = min(600,SIZE)
                 if MULTI_ON:
                     for idx in range(NET_NUM):
-                        self.drawImage(util.makeBGR(self.mY[net(idx)].d),dSIZE,dSIZE*idx,dSIZE,dSIZE)
-                        self.drawImage(util.makeBGR(self.mOutput[net(idx)].d),0,dSIZE*idx,dSIZE,dSIZE)
+                        self.drawImage(util.makeBGR(self.mY[net(idx)].d),dSIZE*(int(idx/MULTI_DRAW_H))*DRAW_RESIZE,dSIZE*(idx%MULTI_DRAW_H)*DRAW_RESIZE,dSIZE*DRAW_RESIZE,dSIZE*DRAW_RESIZE)
+                        #self.drawImage(util.makeBGR(self.mOutput[net(idx)].d),dSIZE*(int(idx/MULTI_DRAW_H)),dSIZE*(idx%MULTI_DRAW_H),dSIZE,dSIZE)
                 else:
                     self.drawImage(util.makeBGR(self.y.d),dSIZE,0,dSIZE,dSIZE)
                     self.drawImage(util.makeBGR(self.output.d),0,0,dSIZE,dSIZE)
@@ -255,9 +268,10 @@ class App:
             if TRAIN_ON:
                 if MULTI_ON:
                     for idx in range(NET_NUM):
-                        self.mLoss[net(idx)].backward(clear_buffer=True)
-                        self.mSolver[net(idx)].weight_decay(self.args.weight_decay)
-                        self.mSolver[net(idx)].update()
+                        if idx in TRAIN_ON_ONLY:
+                            self.mLoss[net(idx)].backward(clear_buffer=True)
+                            self.mSolver[net(idx)].weight_decay(self.args.weight_decay)
+                            self.mSolver[net(idx)].update()
                 else:
                     self.loss.backward(clear_buffer=True)
                     self.solver.weight_decay(self.args.weight_decay)
@@ -266,8 +280,8 @@ class App:
                     param = nn.get_parameters()
                     for i,j in param.items():
                         param.get(i).d /= param.get(i).d.std() 
-        return
         self.frameSpentTime.append(time.time() - self.frameStart)
+        return
 
     def drawImage(self,ary,x,y,w,h,useCanvas = True):
         if useCanvas:
@@ -278,7 +292,7 @@ class App:
                     print "WARN out of area",(x,y,w,h)
             else:
                 try:
-                    self.canvas[y:y+h,x:x+w,:] = cv2.resize(ary,(w,h))
+                    self.canvas[int(y):int(y+h),int(x):int(x+w),:] = cv2.resize(ary,(int(w),int(h)))
                 except:
                     print "WARN out of area",(x,y,w,h)
             return
