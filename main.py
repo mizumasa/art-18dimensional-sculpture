@@ -40,19 +40,19 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 200
+SIZE = 100
 
 CAM_ON = False
 
 VIEW_ON = False
 VIEW_ON = True
 
-LOOP_MODE = False
-LOOP_LENGTH = 60
-LOOP_FADE = 40
+LOOP_MODE = True
+LOOP_LENGTH = 30
+LOOP_FADE = 5
 
 TRAIN_ON = True
-SAVE_ON = True
+SAVE_ON = False
 
 PARAM_NORM = True
 LEARN_RATE = 0.0002
@@ -65,6 +65,10 @@ if DEMO: #realtimedemo
     LOOP_FADE = 20
 
 
+#MULTI mode
+MULTI_ON = False
+NET_NUM = 3
+
 def network(x, maxh=16, depth=8):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
@@ -76,6 +80,9 @@ def network(x, maxh=16, depth=8):
         with nn.parameter_scope("convOut"):
             out = F.sigmoid(PF.convolution(out, 3, (1, 1), with_bias=False))
     return out
+
+def net(net_num):
+    return "net"+str(net_num)
 
 class App:
     def __init__(self,args):
@@ -98,6 +105,13 @@ class App:
 
         self.param = {"pre":{},"next":{}}
 
+        self.mParam={}
+        self.mX={}
+        self.mY={}
+        self.mOutput={}
+        self.mLoss={}
+        self.mSolver={}
+
         from nnabla.contrib.context import extension_context
         extension_module = args.context
         if args.context is None:
@@ -106,28 +120,45 @@ class App:
         ctx = extension_context(extension_module, device_id=args.device_id)
         nn.set_default_context(ctx)
 
-        self.x = nn.Variable([1, 3, SIZE, SIZE])
-        #y = network(x, maxh=8, depth=5)
-        self.y = network(self.x)
-        
         self.dataIn = util.makeInput(SIZE)
-        self.output = nn.Variable([1, 3, SIZE, SIZE])
-        
         dataOut = util.makeOutput("test.png",SIZE)
-        self.output.d = dataOut
+    
+        if MULTI_ON:
+            for idx in range(NET_NUM):
+                with nn.parameter_scope(net(idx)):
+                    self.mX[net(idx)] = nn.Variable([1, 3, SIZE, SIZE])
+                    self.mY[net(idx)] = network(self.mX[net(idx)])
+                    self.mOutput[net(idx)] = nn.Variable([1, 3, SIZE, SIZE])
+                    self.mLoss[net(idx)] = F.mean(F.squared_error(self.mY[net(idx)], self.mOutput[net(idx)]))
+                    param = nn.get_parameters()
+                    for i,j in param.items():
+                        param.get(i).d = np.random.randn(*(j.d.shape))
+                    self.mSolver[net(idx)] = S.Adam(args.learning_rate, beta1=0.5)
+                    with nn.parameter_scope("net"):
+                        self.mSolver[net(idx)].set_parameters(nn.get_parameters())
+                self.mInitParam(idx)
 
-        self.loss = F.mean(F.squared_error(self.y, self.output))
+        else:
+            self.x = nn.Variable([1, 3, SIZE, SIZE])
+            #y = network(x, maxh=8, depth=5)
+            self.y = network(self.x)
+        
+            self.output = nn.Variable([1, 3, SIZE, SIZE])
+            self.output.d = dataOut
+            self.loss = F.mean(F.squared_error(self.y, self.output))
 
-        param = nn.get_parameters()
-        for i,j in param.items():
-            param.get(i).d = np.random.randn(*(j.d.shape))
+            param = nn.get_parameters()
+            for i,j in param.items():
+                param.get(i).d = np.random.randn(*(j.d.shape))
 
-        self.solver = S.Adam(args.learning_rate, beta1=0.5)
-        with nn.parameter_scope("net"):
-            self.solver.set_parameters(nn.get_parameters())
+            self.solver = S.Adam(args.learning_rate, beta1=0.5)
+            with nn.parameter_scope("net"):
+                self.solver.set_parameters(nn.get_parameters())
+            self.initParam()
+        
+        
         self.count = 0
         self.countLoop = 0
-        self.initParam()
 
     def draw(self):
         self.frameStart = time.time()
@@ -138,31 +169,53 @@ class App:
             ret, frame = (True,np.zeros((720,1280,3),dtype="uint8"))
         #img = cv2.imread('image.png') # if use the image file
         if ret:
-            img= cv2.cvtColor(frame,cv2.COLOR_BGR2RGB) #BGR-->RGB
-            img_ = img.copy()
-            contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
-            img = np.asarray(contrast_converter.enhance(2.))
             if CAM_ON:
-                self.output.d = util.makeOutputFromFrame(img,SIZE)
+                img= cv2.cvtColor(frame,cv2.COLOR_BGR2RGB) #BGR-->RGB
+                img_ = img.copy()
+                contrast_converter = ImageEnhance.Contrast(Image.fromarray(img))
+                img = np.asarray(contrast_converter.enhance(2.))
+                if MULTI_ON:
+                    for idx in range(NET_NUM):
+                        self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
+                else:
+                    self.output.d = util.makeOutputFromFrame(img,SIZE)
             else:
-                self.output.d = self.lenna
+                if MULTI_ON:
+                    for idx in range(NET_NUM):
+                        self.mOutput[net(idx)].d = self.lenna
+                else:
+                    self.output.d = self.lenna
 
             if LOOP_MODE:
                 self.countLoop += 1
                 if self.countLoop == LOOP_LENGTH:
                     self.countLoop = 0
-                if self.countLoop < LOOP_FADE:
-                    self.setNowParam(1. * self.countLoop / LOOP_FADE)
-                if self.countLoop == LOOP_FADE:
-                    self.nextParam()
+                if MULTI_ON:
+                    for idx in range(NET_NUM):
+                        if self.countLoop < LOOP_FADE:
+                            self.mSetNowParam(idx,1. * self.countLoop / LOOP_FADE)
+                        if self.countLoop == LOOP_FADE:
+                            self.mNextParam(idx)
+                else:
+                    if self.countLoop < LOOP_FADE:
+                        self.setNowParam(1. * self.countLoop / LOOP_FADE)
+                    if self.countLoop == LOOP_FADE:
+                        self.nextParam()
 
             self.count += 1
             if self.count % 30 == 0 and len(self.frameSpentTime) > 0:
                 print self.count, "fps:", 1. * len(self.frameSpentTime) / sum(self.frameSpentTime) 
                 self.frameSpentTime = []
-            self.x.d = self.dataIn.copy()
-            self.solver.zero_grad()
-            self.loss.forward(clear_no_need_grad=True)
+
+            if MULTI_ON:
+                for idx in range(NET_NUM):
+                    self.mX[net(idx)].d = self.dataIn.copy()
+                    self.mSolver[net(idx)].zero_grad()
+                    self.mLoss[net(idx)].forward(clear_no_need_grad=True)
+            else:
+                self.x.d = self.dataIn.copy()
+                self.solver.zero_grad()
+                self.loss.forward(clear_no_need_grad=True)
 
             #cv2.imshow('screen', util.makeBGRVstack(np.concatenate([y.d, output.d], axis=2)))
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -173,8 +226,13 @@ class App:
             
             if 1:
                 dSIZE = min(600,SIZE)
-                self.drawImage(util.makeBGR(self.y.d),dSIZE,0,dSIZE,dSIZE)
-                self.drawImage(util.makeBGR(self.output.d),0,0,dSIZE,dSIZE)
+                if MULTI_ON:
+                    for idx in range(NET_NUM):
+                        self.drawImage(util.makeBGR(self.mY[net(idx)].d),dSIZE,dSIZE*idx,dSIZE,dSIZE)
+                        self.drawImage(util.makeBGR(self.mOutput[net(idx)].d),0,dSIZE*idx,dSIZE,dSIZE)
+                else:
+                    self.drawImage(util.makeBGR(self.y.d),dSIZE,0,dSIZE,dSIZE)
+                    self.drawImage(util.makeBGR(self.output.d),0,0,dSIZE,dSIZE)
                 #for i in range(16):
                 #    for j in range(10):
                 #        self.drawImage(util.makeBGR(self.y.d),i*100,j*100,100,100)
@@ -195,9 +253,15 @@ class App:
                 img2 = util.makePng(self.y.d)
                 img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
             if TRAIN_ON:
-                self.loss.backward(clear_buffer=True)
-                self.solver.weight_decay(self.args.weight_decay)
-                self.solver.update()
+                if MULTI_ON:
+                    for idx in range(NET_NUM):
+                        self.mLoss[net(idx)].backward(clear_buffer=True)
+                        self.mSolver[net(idx)].weight_decay(self.args.weight_decay)
+                        self.mSolver[net(idx)].update()
+                else:
+                    self.loss.backward(clear_buffer=True)
+                    self.solver.weight_decay(self.args.weight_decay)
+                    self.solver.update()
                 if PARAM_NORM:
                     param = nn.get_parameters()
                     for i,j in param.items():
@@ -268,6 +332,29 @@ class App:
         for i,j in param.items():
             buf = self.param["next"][i] * level + self.param["pre"][i] * (1. - level)
             param.get(i).d = (buf / buf.std()) 
+        return
+
+    def mInitParam(self,idx):
+        with nn.parameter_scope(net(idx)):
+            param = nn.get_parameters()
+            self.mParam[net(idx)] = {"pre":{},"next":{}}
+            for i,j in param.items():
+                self.mParam[net(idx)]["pre"][i] = np.random.randn(*(j.d.shape))
+                self.mParam[net(idx)]["next"][i] = np.random.randn(*(j.d.shape))
+        return
+
+    def mNextParam(self,idx):
+        for i in self.mParam[net(idx)]["next"].keys():
+            self.mParam[net(idx)]["pre"][i] = self.mParam[net(idx)]["next"][i].copy()
+            self.mParam[net(idx)]["next"][i] = np.random.randn(*(self.mParam[net(idx)]["next"][i].shape))
+        return
+
+    def mSetNowParam(self,idx,level):#level = 0 -> 1
+        with nn.parameter_scope(net(idx)):
+            param = nn.get_parameters()
+            for i,j in param.items():
+                buf = self.mParam[net(idx)]["next"][i] * level + self.mParam[net(idx)]["pre"][i] * (1. - level)
+                param.get(i).d = (buf / buf.std()) 
         return
 
     def startCanvas(self):
