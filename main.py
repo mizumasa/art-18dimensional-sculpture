@@ -51,8 +51,8 @@ VIEW_ON = True
 
 LOOP_MODE = True
 LOOP_ON_IGNORE = [7]
-LOOP_LENGTH = 60
-LOOP_FADE = 10
+LOOP_LENGTH = 50
+LOOP_FADE = 40
 
 TRAIN_ON = True
 TRAIN_ON_ONLY = [7]
@@ -69,13 +69,12 @@ if DEMO: #realtimedemo
     LOOP_LENGTH = 560
     LOOP_FADE = 20
 
-
 #MULTI mode
 MULTI_ON = True
 NET_NUM = 15
 MULTI_DRAW_H = 3
 
-def network(x, maxh=16, depth=8):
+def network(x, maxh=25, depth=6):
     with nn.parameter_scope("net"):
         # (1, 28, 28) --> (32, 16, 16)
         with nn.parameter_scope("convIn"):
@@ -108,7 +107,9 @@ class App:
         self.frameSpentTime = []
         self.canvas = np.zeros((self.initWindowHeight,self.initWindowWidth,3),dtype = "uint8")
         self.lenna = util.makeOutput("lenna.jpg",SIZE)
-
+        self.lenna = util.makeOutput("monna.jpg",SIZE)
+        self.lennaOn = False
+        self.drawCenter = False
         self.param = {"pre":{},"next":{}}
 
         self.mParam={}
@@ -117,6 +118,7 @@ class App:
         self.mOutput={}
         self.mLoss={}
         self.mSolver={}
+        self.mCountLoop = {}
 
         from nnabla.contrib.context import extension_context
         extension_module = args.context
@@ -145,6 +147,7 @@ class App:
                     with nn.parameter_scope("net"):
                         self.mSolver[net(idx)].set_parameters(nn.get_parameters())
                 self.mInitParam(idx)
+                self.mCountLoop[net(idx)] = int(np.random.rand() * (LOOP_LENGTH - 1 ) )
 
         else:
             self.x = nn.Variable([1, 3, SIZE, SIZE])
@@ -185,7 +188,10 @@ class App:
                 if MULTI_ON:
                     for idx in range(NET_NUM):
                         if idx in CAM_ON_ONLY:
-                            self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
+                            if self.lennaOn:
+                                self.mOutput[net(idx)].d = self.lenna
+                            else:
+                                self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
                 else:
                     self.output.d = util.makeOutputFromFrame(img,SIZE)
             #else:
@@ -204,10 +210,13 @@ class App:
                     self.countLoop = 0
                 if MULTI_ON:
                     for idx in range(NET_NUM):
+                        self.mCountLoop[net(idx)] += 1
+                        if self.mCountLoop[net(idx)] == LOOP_LENGTH:
+                            self.mCountLoop[net(idx)] = 0
                         if idx not in LOOP_ON_IGNORE:
-                            if self.countLoop < LOOP_FADE:
-                                self.mSetNowParam(idx,1. * self.countLoop / LOOP_FADE)
-                            if self.countLoop == LOOP_FADE:
+                            if self.mCountLoop[net(idx)] < LOOP_FADE:
+                                self.mSetNowParam(idx,1. * self.mCountLoop[net(idx)] / LOOP_FADE)
+                            if self.mCountLoop[net(idx)] == LOOP_FADE:
                                 self.mNextParam(idx)
                 else:
                     if self.countLoop < LOOP_FADE:
@@ -241,7 +250,11 @@ class App:
                 dSIZE = min(600,SIZE)
                 if MULTI_ON:
                     for idx in range(NET_NUM):
-                        self.drawImage(util.makeBGR(self.mY[net(idx)].d),dSIZE*(int(idx/MULTI_DRAW_H))*DRAW_RESIZE,dSIZE*(idx%MULTI_DRAW_H)*DRAW_RESIZE,dSIZE*DRAW_RESIZE,dSIZE*DRAW_RESIZE)
+                        marginY = (self.windowSizeH - dSIZE * DRAW_RESIZE * MULTI_DRAW_H)/2
+                        marginX = (self.windowSizeW - dSIZE * DRAW_RESIZE * int(NET_NUM / MULTI_DRAW_H))/2
+                        if self.drawCenter:
+                            marginX = 0;marginY=0
+                        self.drawImage(util.makeBGR(self.mY[net(idx)].d),dSIZE*(int(idx/MULTI_DRAW_H))*DRAW_RESIZE,dSIZE*(idx%MULTI_DRAW_H)*DRAW_RESIZE,dSIZE*DRAW_RESIZE,dSIZE*DRAW_RESIZE,mx = marginX,my=marginY)
                         #self.drawImage(util.makeBGR(self.mOutput[net(idx)].d),dSIZE*(int(idx/MULTI_DRAW_H)),dSIZE*(idx%MULTI_DRAW_H),dSIZE,dSIZE)
                 else:
                     self.drawImage(util.makeBGR(self.y.d),dSIZE,0,dSIZE,dSIZE)
@@ -283,16 +296,16 @@ class App:
         self.frameSpentTime.append(time.time() - self.frameStart)
         return
 
-    def drawImage(self,ary,x,y,w,h,useCanvas = True):
+    def drawImage(self,ary,x,y,w,h,useCanvas = True,mx = 0,my = 0):
         if useCanvas:
             if (ary.shape == (h,w,3)):
                 try:
-                    self.canvas[y:y+h,x:x+w,:] = ary
+                    self.canvas[y+my:y+my+h,x+mx:x+mx+w,:] = ary
                 except:
                     print "WARN out of area",(x,y,w,h)
             else:
                 try:
-                    self.canvas[int(y):int(y+h),int(x):int(x+w),:] = cv2.resize(ary,(int(w),int(h)))
+                    self.canvas[int(y+my):int(y+my+h),int(x+mx):int(x+mx+w),:] = cv2.resize(ary,(int(w),int(h)))
                 except:
                     print "WARN out of area",(x,y,w,h)
             return
@@ -358,9 +371,17 @@ class App:
         return
 
     def mNextParam(self,idx):
-        for i in self.mParam[net(idx)]["next"].keys():
-            self.mParam[net(idx)]["pre"][i] = self.mParam[net(idx)]["next"][i].copy()
-            self.mParam[net(idx)]["next"][i] = np.random.randn(*(self.mParam[net(idx)]["next"][i].shape))
+        if np.random.rand() > 0.8:
+            with nn.parameter_scope(net(7)):
+                param = nn.get_parameters()
+                for i,j in param.items():
+                    self.mParam[net(idx)]["pre"][i] = self.mParam[net(idx)]["next"][i].copy()
+                    self.mParam[net(idx)]["next"][i] = param.get(i).d
+        else:
+            for i in self.mParam[net(idx)]["next"].keys():
+                self.mParam[net(idx)]["pre"][i] = self.mParam[net(idx)]["next"][i].copy()
+                self.mParam[net(idx)]["next"][i] = np.random.randn(*(self.mParam[net(idx)]["next"][i].shape))
+            return
         return
 
     def mSetNowParam(self,idx,level):#level = 0 -> 1
@@ -400,6 +421,9 @@ class App:
         # convert byte to str
         key = key.decode('utf-8')
         # press q to exit
+        if key == 'c':
+            print("center")
+            self.drawCenter = not self.drawCenter
         if key == 'q':
             print('exit')
             sys.exit()
@@ -407,6 +431,8 @@ class App:
             #self.setNextParam()
             self.nextParam()
             self.setNowParam(0.5)
+        if key == 'l':
+            self.lennaOn = not self.lennaOn
         if key == 't':
             global TRAIN_ON
             TRAIN_ON = not TRAIN_ON
