@@ -40,11 +40,12 @@ from OpenGL.GLUT import *
 
 import util
 
-SIZE = 200
+SIZE = 180
 DRAW_RESIZE = 1.3
 
 CAM_ON = True
 CAM_ON_ONLY = [7]
+CAM_SAVED = False
 
 VIEW_ON = False
 VIEW_ON = True
@@ -192,6 +193,11 @@ class App:
                                 self.mOutput[net(idx)].d = self.lenna
                             else:
                                 self.mOutput[net(idx)].d = util.makeOutputFromFrame(img,SIZE)
+                            if CAM_SAVED:
+                                print "use saved cam",self.tmpCam.shape
+                                self.mOutput[net(idx)].d = self.tmpCam
+                                print "use saved cam2",self.tmpCam.shape
+
                 else:
                     self.output.d = util.makeOutputFromFrame(img,SIZE)
             #else:
@@ -276,8 +282,13 @@ class App:
             glutSwapBuffers()
 
             if SAVE_ON and self.count % 1 == 0:
-                img2 = util.makePng(self.y.d)
-                img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
+                if MULTI_ON:
+                    data = glReadPixels(0, 0, self.windowSizeW, self.windowSizeH, GL_RGBA, GL_UNSIGNED_BYTE)
+                    image = Image.frombytes("RGBA", (self.windowSizeW, self.windowSizeH), data)
+                    image.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
+                else:
+                    img2 = util.makePng(self.y.d)
+                    img2.save(os.path.join(self.args.model_save_path, "output_%06d.png" % self.count))
             if TRAIN_ON:
                 if MULTI_ON:
                     for idx in range(NET_NUM):
@@ -439,6 +450,11 @@ class App:
         if key == 's':
             global SAVE_ON
             SAVE_ON = not SAVE_ON
+        if key == 'y':
+            self.tmpCam = self.mOutput[net(7)].d.copy()
+        if key == 'u':
+            global CAM_SAVED
+            CAM_SAVED = not CAM_SAVED
         if key == 'f':
             if self.initWindowWidth == self.windowSizeW:
                 glutFullScreen()
@@ -447,7 +463,7 @@ class App:
 
 
 if __name__ == '__main__':
-    monitor_path = './tmpLoop8'
+    monitor_path = './tmpLoop11'
     args = get_args(monitor_path=monitor_path, model_save_path=monitor_path,
                     max_iter=20000, learning_rate=LEARN_RATE, batch_size=64,
                     weight_decay=0.0001)
